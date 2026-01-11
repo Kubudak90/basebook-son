@@ -1,0 +1,27 @@
+<svg width="240" height="140" viewBox="0 0 240 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Icon - centered at x=120 -->
+  <g transform="translate(10,10)">
+    <path d="M10 10 C40 -5, 80 -5, 110 10 V70 C80 55, 40 55, 10 70 Z" fill="url(#g1)"/>
+    <path d="M110 10 C140 -5, 180 -5, 210 10 V70 C180 55, 140 55, 110 70 Z" fill="#1E293B"/>
+
+    <rect x="145" y="28" width="10" height="10" rx="2" fill="#22D3EE"/>
+    <rect x="165" y="18" width="10" height="10" rx="2" fill="#22D3EE"/>
+    <rect x="165" y="38" width="10" height="10" rx="2" fill="#22D3EE"/>
+  </g>
+
+  <!-- Text: base (blue) + book (white) - centered -->
+  <text x="120" y="125"
+        text-anchor="middle"
+        font-size="28"
+        font-weight="600"
+        font-family="Inter, system-ui, sans-serif">
+    <tspan fill="#3B82F6">base</tspan><tspan fill="#E5E7EB">book</tspan>
+  </text>
+</svg>
