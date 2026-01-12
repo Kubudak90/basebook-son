@@ -81,12 +81,15 @@ export function usePools() {
         if (allPairsResults) {
             allPairsResults.forEach((result, index) => {
                 if (result?.status === "success" && result.result) {
-                    const pairs = result.result as Array<{
+                    // Type assertion to help TypeScript understand the structure
+                    const pairResult = result as { status: "success"; result: Array<{
                         binStep: bigint
                         lbPair: string
                         createdByOwner: boolean
                         ignoredForRouting: boolean
-                    }>
+                    }> }
+
+                    const pairs = pairResult.result
 
                     const pair = tokenPairs[index]
                     
