@@ -40,7 +40,6 @@ export function useTransactionHistory() {
         setTransactions(parsed)
       }
     } catch (error) {
-      console.error("Failed to load transaction history:", error)
     }
   }, [])
 
@@ -49,7 +48,6 @@ export function useTransactionHistory() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(transactions))
     } catch (error) {
-      console.error("Failed to save transaction history:", error)
     }
   }, [transactions])
 

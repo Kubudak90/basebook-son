@@ -16,8 +16,8 @@ export interface UserLiquidityPosition {
 export function useUserLiquidity(poolPairAddress: `0x${string}` | undefined) {
   const { address } = useAccount()
 
-  // First, get the active ID
-  const { data: activeIdData } = useReadContracts({
+  // First, get the active ID and binStep
+  const { data: poolInfoData } = useReadContracts({
     contracts: poolPairAddress
       ? [
           {
@@ -26,13 +26,23 @@ export function useUserLiquidity(poolPairAddress: `0x${string}` | undefined) {
             functionName: "getActiveId",
             chainId: baseSepolia.id,
           },
+          {
+            address: poolPairAddress,
+            abi: LBPairABI,
+            functionName: "getBinStep",
+            chainId: baseSepolia.id,
+          },
         ]
       : [],
   })
 
-  const activeId = activeIdData?.[0]?.status === "success"
-    ? Number(activeIdData[0].result)
+  const activeId = poolInfoData?.[0]?.status === "success"
+    ? Number(poolInfoData[0].result)
     : undefined
+
+  const binStep = poolInfoData?.[1]?.status === "success"
+    ? Number(poolInfoData[1].result)
+    : 25 // Fallback to 25
 
   // Generate bin IDs to check (±50 bins around active)
   const binIdsToCheck = useMemo(() => {
@@ -150,7 +160,6 @@ export function useUserLiquidity(poolPairAddress: `0x${string}` | undefined) {
 
         // Calculate price from bin ID
         // price = (1 + binStep/10000)^(binId - 2^23)
-        const binStep = 25 // You should fetch this from the pool
         const priceBase = 1 + binStep / 10000
         const pricePower = binId - 8388608 // 2^23
         const price = Math.pow(priceBase, pricePower)
@@ -170,7 +179,7 @@ export function useUserLiquidity(poolPairAddress: `0x${string}` | undefined) {
     })
 
     return result.sort((a, b) => a.binId - b.binId)
-  }, [balanceData, binReserveData, totalSupplyData, binIdsToCheck, activeId])
+  }, [balanceData, binReserveData, totalSupplyData, binIdsToCheck, activeId, binStep])
 
   return {
     positions,

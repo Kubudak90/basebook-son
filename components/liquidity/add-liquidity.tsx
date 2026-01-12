@@ -127,44 +127,6 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
     ? BigInt(poolContractData[2].result as number)
     : undefined
 
-  // Debug: Log contract data status with full details
-  useEffect(() => {
-    if (poolPairAddress && poolContractData) {
-      console.log("🔍 Pool Contract Data Status (DETAILED):", {
-        poolPairAddress,
-        isLoading: isLoadingPoolData,
-        dataLength: poolContractData.length,
-        results: poolContractData.map((r, i) => {
-          const funcName = i === 0 ? "tokenX" : i === 1 ? "tokenY" : "getActiveId"
-          return {
-            index: i,
-            function: funcName,
-            status: r?.status,
-            error: r?.error,
-            result: r?.result,
-            fullResult: r,
-          }
-        }),
-        extracted: {
-          contractTokenX,
-          contractTokenY,
-          poolActiveId,
-        },
-      })
-
-      // Log why extraction failed
-      if (!contractTokenX || !contractTokenY) {
-        console.error("❌ Extraction failed - Details:", {
-          firstResult: poolContractData[0],
-          secondResult: poolContractData[1],
-          firstStatus: poolContractData[0]?.status,
-          secondStatus: poolContractData[1]?.status,
-          firstError: poolContractData[0]?.error,
-          secondError: poolContractData[1]?.error,
-        })
-      }
-    }
-  }, [poolPairAddress, poolContractData, isLoadingPoolData, contractTokenX, contractTokenY, poolActiveId])
 
   // Fetch live prices from CoinGecko
   const { getPrice, getPairPrice, isLoading: isPriceLoading } = usePrices(
@@ -335,9 +297,9 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
         // Last non-zero bin gets the remainder to ensure exact 1e18
         distributionX.push((PRECISION - distribXSum).toString())
       } else {
+        // Use higher precision to avoid precision loss
         const ratio = weightsX[i] / sumX
-        const ratioBig = Math.floor(ratio * 1e9)
-        const scaled = BigInt(ratioBig) * BigInt(1e9)
+        const scaled = BigInt(Math.floor(ratio * Number(PRECISION)))
         distributionX.push(scaled.toString())
         distribXSum += scaled
       }
@@ -356,9 +318,9 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
         // Last non-zero bin gets the remainder to ensure exact 1e18
         distributionY.push((PRECISION - distribYSum).toString())
       } else {
+        // Use higher precision to avoid precision loss
         const ratio = weightsY[i] / sumY
-        const ratioBig = Math.floor(ratio * 1e9)
-        const scaled = BigInt(ratioBig) * BigInt(1e9)
+        const scaled = BigInt(Math.floor(ratio * Number(PRECISION)))
         distributionY.push(scaled.toString())
         distribYSum += scaled
       }
@@ -398,11 +360,17 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
       if (isNaN(numX) || isNaN(numY)) return false
       if (numX <= 0 || numY <= 0) return false
 
-      // Check against balances
-      if (balanceX && balanceY) {
-        const balX = Number.parseFloat(balanceX)
-        const balY = Number.parseFloat(balanceY)
-        if (numX > balX || numY > balY) return false
+      // Check against balances using BigInt for precision
+      if (balanceX && balanceY && tokenX && tokenY) {
+        try {
+          const amountXBig = parseUnits(amountX, tokenX.decimals)
+          const amountYBig = parseUnits(amountY, tokenY.decimals)
+          const balanceXBig = parseUnits(balanceX, tokenX.decimals)
+          const balanceYBig = parseUnits(balanceY, tokenY.decimals)
+          if (amountXBig > balanceXBig || amountYBig > balanceYBig) return false
+        } catch {
+          return false
+        }
       }
 
       return true
@@ -414,14 +382,13 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
   const handleApproveX = async () => {
     if (!tokenX || !amountX) return
     try {
-      // Use max uint256 approval to avoid issues when token order changes
-      // (contract may swap tokenX/tokenY, causing amount mismatch)
-      const maxApproval = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+      // Approve exact amount for security
+      const amount = parseUnits(amountX, tokenX.decimals)
       const hash = await writeContractAsync({
         address: tokenX.address as `0x${string}`,
         abi: ERC20ABI,
         functionName: "approve",
-        args: [CONTRACTS.LBRouter, maxApproval],
+        args: [CONTRACTS.LBRouter, amount],
       })
       setTxHash(hash)
       toast({ title: "Approval submitted", description: "Waiting for confirmation..." })
@@ -436,14 +403,13 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
   const handleApproveY = async () => {
     if (!tokenY || !amountY) return
     try {
-      // Use max uint256 approval to avoid issues when token order changes
-      // (contract may swap tokenX/tokenY, causing amount mismatch)
-      const maxApproval = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")
+      // Approve exact amount for security
+      const amount = parseUnits(amountY, tokenY.decimals)
       const hash = await writeContractAsync({
         address: tokenY.address as `0x${string}`,
         abi: ERC20ABI,
         functionName: "approve",
-        args: [CONTRACTS.LBRouter, maxApproval],
+        args: [CONTRACTS.LBRouter, amount],
       })
       setTxHash(hash)
       toast({ title: "Approval submitted", description: "Waiting for confirmation..." })
@@ -483,7 +449,6 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
       // Use contract's token addresses (BEST - most reliable)
       finalContractTokenX = contractTokenX
       finalContractTokenY = contractTokenY
-      console.log("✅ Using contract token addresses")
 
       // Determine which UI token matches contractTokenX
       const tokenXIsContractX = tokenX.address.toLowerCase() === contractTokenX.toLowerCase()
@@ -514,13 +479,6 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
         finalAmountX = amountY
         finalAmountY = amountX
       }
-      console.warn("⚠️ Using fallback token addresses (contract call failed):", {
-        finalContractTokenX,
-        finalContractTokenY,
-        originalX: poolTokenX.address,
-        originalY: poolTokenY.address,
-        note: "Token order sorted by address (tokenX < tokenY)",
-      })
     } else if (tokenX?.address && tokenY?.address) {
       // Fallback 2: No pool context - use selected tokens (tokenX/tokenY from UI)
       // CRITICAL: LBRouter expects tokenX < tokenY (address comparison)
@@ -544,27 +502,11 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
         finalAmountX = amountY
         finalAmountY = amountX
       }
-      console.log("ℹ️ Using selected token addresses (no pool context):", {
-        finalContractTokenX,
-        finalContractTokenY,
-        originalX: tokenX.address,
-        originalY: tokenY.address,
-        note: "Token order sorted by address (tokenX < tokenY)",
-      })
     } else {
       toast({
         title: "Pool bilgileri yüklenemedi",
         description: "Token bilgileri alınamadı. Lütfen tokenları seçin.",
         variant: "destructive",
-      })
-      console.error("❌ No token data available:", {
-        contractTokenX,
-        contractTokenY,
-        poolTokenX: poolTokenX?.address,
-        poolTokenY: poolTokenY?.address,
-        tokenX: tokenX?.address,
-        tokenY: tokenY?.address,
-        poolPairAddress,
       })
       return
     }
@@ -613,17 +555,6 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
       finalTokenXAllowance = allowanceXResult as bigint
       finalTokenYAllowance = allowanceYResult as bigint
 
-      console.log("🔍 Approval Check (DIRECT CONTRACT READ):", {
-        finalTokenX: finalTokenX.address,
-        finalTokenY: finalTokenY.address,
-        finalTokenXAllowance: finalTokenXAllowance.toString(),
-        finalTokenYAllowance: finalTokenYAllowance.toString(),
-        finalAmountXBig: finalAmountXBig.toString(),
-        finalAmountYBig: finalAmountYBig.toString(),
-        needsApprovalX: finalTokenXAllowance < finalAmountXBig,
-        needsApprovalY: finalTokenYAllowance < finalAmountYBig,
-      })
-
       if (finalTokenXAllowance < finalAmountXBig || finalTokenYAllowance < finalAmountYBig) {
         toast({
           title: "Approval gerekli",
@@ -633,7 +564,6 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
         return
       }
     } catch (error: any) {
-      console.error("❌ Failed to read allowances:", error)
       toast({
         title: "Hata",
         description: "Allowance kontrolü yapılamadı. Lütfen tekrar deneyin.",
@@ -654,19 +584,8 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
       const finalTokenXAddr = finalContractTokenX as string
       const finalTokenYAddr = finalContractTokenY as string
 
-      // Debug logs
-      console.log("🔍 DEBUG - Token Order Check:")
-      console.log("  poolPairAddress:", poolPairAddress)
-      console.log("  contractTokenX:", contractTokenX || "Using fallback:", finalContractTokenX)
-      console.log("  contractTokenY:", contractTokenY || "Using fallback:", finalContractTokenY)
-      console.log("  UI tokenX.address:", tokenX.address)
-      console.log("  UI tokenY.address:", tokenY.address)
-      console.log("  Final tokenX:", finalTokenX?.symbol, finalTokenXAddr)
-      console.log("  Final tokenY:", finalTokenY?.symbol, finalTokenYAddr)
-
       // Check which UI token matches contractTokenX to determine amounts
       const tokenXIsContractX = tokenX.address.toLowerCase() === finalTokenXAddr.toLowerCase()
-      console.log("  tokenXIsContractX:", tokenXIsContractX)
 
       // finalAmountX and finalAmountY are ALREADY in contract order (swapped at line 417-418)
       // So amtX and amtY are already correct - NO NEED TO SWAP AGAIN!
@@ -682,30 +601,8 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
       const xSum = distributionX.reduce((a, b) => BigInt(a) + BigInt(b), BigInt(0))
       const ySum = distributionY.reduce((a, b) => BigInt(a) + BigInt(b), BigInt(0))
 
-      console.log("🔍 Distribution Check:", {
-        deltaIds,
-        distributionX,
-        distributionY,
-        xSum: xSum.toString(),
-        ySum: ySum.toString(),
-        xSumEquals1e18: xSum === PRECISION,
-        ySumEquals1e18: ySum === PRECISION,
-        tokenXIsContractX,
-        note: "Each distribution normalized separately to exactly 1e18"
-      })
-
-      console.log("  ✅ Final tokenX:", finalTokenXAddr)
-      console.log("  ✅ Final tokenY:", finalTokenYAddr)
-      console.log("  ✅ Final amountX (contract order):", finalAmountXBig.toString())
-      console.log("  ✅ Final amountY (contract order):", finalAmountYBig.toString())
-
       // Use fetched activeId or fallback to center bin
       const activeIdToUse = poolActiveId ? BigInt(poolActiveId) : BigInt(8388608)
-
-      console.log("🔍 Final Contract Data:")
-      console.log("  contractTokenX:", contractTokenX)
-      console.log("  contractTokenY:", contractTokenY)
-      console.log("  poolActiveId:", poolActiveId)
 
       const liquidityParams = {
         tokenX: finalTokenXAddr as `0x${string}`,
@@ -724,11 +621,6 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
         refundTo: address,
         deadline: BigInt(Math.floor(Date.now() / 1000) + 1200),
       }
-
-      console.log("📤 Sending transaction with params:")
-      console.log("  tokenX:", liquidityParams.tokenX)
-      console.log("  tokenY:", liquidityParams.tokenY)
-      console.log("  binStep:", liquidityParams.binStep.toString())
 
       const hash = await writeContractAsync({
         address: CONTRACTS.LBRouter as `0x${string}`,
@@ -755,17 +647,6 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
       setAmountX("")
       setAmountY("")
     } catch (error: any) {
-      console.error("❌ Transaction failed:", error)
-      console.error("❌ Error details:", {
-        message: error.message,
-        shortMessage: error.shortMessage,
-        cause: error.cause,
-        data: error.data,
-        code: error.code,
-        name: error.name,
-        stack: error.stack,
-      })
-
       // Extract more detailed error message
       let errorMessage = "Bilinmeyen hata"
       if (error.shortMessage) {

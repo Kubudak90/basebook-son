@@ -77,7 +77,7 @@ export function RemoveLiquidity() {
   }, [selectedPoolId, pools])
 
   // Auto-select first pool if available
-  useMemo(() => {
+  useEffect(() => {
     if (!selectedPoolId && pools.length > 0) {
       setSelectedPoolId(pools[0].id)
     }
@@ -133,7 +133,7 @@ export function RemoveLiquidity() {
   }
 
   // Auto-select all bins when positions load or pool changes
-  useMemo(() => {
+  useEffect(() => {
     if (positions.length > 0) {
       setBinRange([0, positions.length - 1])
     } else {
@@ -190,15 +190,6 @@ export function RemoveLiquidity() {
       const amountXMin = (selectedData.estimatedX * slippageMultiplier) / BigInt(10000)
       const amountYMin = (selectedData.estimatedY * slippageMultiplier) / BigInt(10000)
 
-      console.log("🗑️ Removing liquidity:")
-      console.log("  Bin IDs:", ids.map(id => id.toString()))
-      console.log("  Amounts:", amounts.map(amt => amt.toString()))
-      console.log("  Percentage:", percentage[0] + "%")
-      console.log("  Estimated X:", selectedData.estimatedX.toString())
-      console.log("  Estimated Y:", selectedData.estimatedY.toString())
-      console.log("  Min X (with slippage):", amountXMin.toString())
-      console.log("  Min Y (with slippage):", amountYMin.toString())
-
       const hash = await writeContractAsync({
         address: CONTRACTS.LBRouter as `0x${string}`,
         abi: LBRouterABI,
@@ -232,7 +223,6 @@ export function RemoveLiquidity() {
 
       toast({ title: "Liquidity removal submitted", description: "Waiting for confirmation..." })
     } catch (error: any) {
-      console.error("Remove liquidity error:", error)
       toast({ title: "Remove liquidity failed", description: error.message, variant: "destructive" })
     }
   }

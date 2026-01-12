@@ -285,8 +285,9 @@ export function SwapCard() {
       const amountIn = parseUnits(fromAmount, fromToken.decimals)
       const expectedOut = parseUnits(calculatedOutput, toToken.decimals)
 
-      // Apply slippage protection
-      const minAmountOut = (expectedOut * BigInt(Math.floor((100 - Number.parseFloat(slippage)) * 100))) / BigInt(10000)
+      // Apply slippage protection using basis points
+      const slippageBps = BigInt(Math.floor(Number.parseFloat(slippage) * 100))
+      const minAmountOut = (expectedOut * (BigInt(10000) - slippageBps)) / BigInt(10000)
 
       // Get bin steps from quote
       const binSteps = (quoteData as any).binSteps || [25]

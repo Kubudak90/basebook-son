@@ -112,8 +112,6 @@ export function MyPools({ onManagePool }: MyPoolsProps = {}) {
     setSelectedPoolId(poolId)
     if (onManagePool) {
       onManagePool(poolId)
-    } else {
-      console.log("Managing pool:", poolId)
     }
   }
 
