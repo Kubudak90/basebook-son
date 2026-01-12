@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast"
 import { Spinner } from "@/components/ui/spinner"
 import { baseSepolia } from "wagmi/chains"
 import { useTransactionHistory } from "@/hooks/use-transaction-history"
+import { usePoolFees } from "@/hooks/use-pool-fees"
 
 interface Token {
   address: string
@@ -163,6 +164,21 @@ export function SwapCard() {
     return null
   }
 
+  // Get pair address from quote for fee information
+  const pairAddress = useMemo(() => {
+    if (!quoteData) return undefined
+    try {
+      const pairs = (quoteData as any).pairs
+      if (!pairs || pairs.length === 0) return undefined
+      return pairs[0] as `0x${string}`
+    } catch {
+      return undefined
+    }
+  }, [quoteData])
+
+  // Get dynamic fees from the pool
+  const { baseFee, volatilityFee, totalFee, isLoading: isLoadingFees } = usePoolFees(pairAddress)
+
   // Validate input amount
   const validateAmount = (amount: string): string | null => {
     if (!amount || amount.trim() === "") {
@@ -240,8 +256,16 @@ export function SwapCard() {
     setInputError(null)
   }
 
+  // Check if token is native ETH (WETH on this chain)
+  const isNativeToken = (token: Token | null) => {
+    if (!token) return false
+    return token.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+  }
+
   const needsApproval = () => {
     if (!fromAmount || !fromToken) return false
+    // Native ETH doesn't need approval
+    if (isNativeToken(fromToken)) return false
     try {
       const amount = parseUnits(fromAmount, fromToken.decimals)
       return (allowance as bigint) < amount
@@ -291,20 +315,42 @@ export function SwapCard() {
 
       // Get bin steps from quote
       const binSteps = (quoteData as any).binSteps || [25]
+      const tokenPath = [fromToken.address as `0x${string}`, toToken.address as `0x${string}`]
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200) // 20 min deadline
 
-      const hash = await writeContractAsync({
-        address: CONTRACTS.LBRouter as `0x${string}`,
-        abi: LBRouterABI,
-        functionName: "swapExactTokensForTokens",
-        args: [
-          amountIn,
-          minAmountOut,
-          binSteps,
-          [fromToken.address as `0x${string}`, toToken.address as `0x${string}`],
-          address,
-          BigInt(Math.floor(Date.now() / 1000) + 1200), // 20 min deadline
-        ],
-      })
+      const fromIsNative = isNativeToken(fromToken)
+      const toIsNative = isNativeToken(toToken)
+
+      let hash: `0x${string}`
+
+      // Native ETH → Token
+      if (fromIsNative) {
+        hash = await writeContractAsync({
+          address: CONTRACTS.LBRouter as `0x${string}`,
+          abi: LBRouterABI,
+          functionName: "swapExactNATIVEForTokens",
+          value: amountIn, // Send ETH as value
+          args: [minAmountOut, binSteps, tokenPath, address, deadline],
+        })
+      }
+      // Token → Native ETH
+      else if (toIsNative) {
+        hash = await writeContractAsync({
+          address: CONTRACTS.LBRouter as `0x${string}`,
+          abi: LBRouterABI,
+          functionName: "swapExactTokensForNATIVE",
+          args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+        })
+      }
+      // Regular Token → Token
+      else {
+        hash = await writeContractAsync({
+          address: CONTRACTS.LBRouter as `0x${string}`,
+          abi: LBRouterABI,
+          functionName: "swapExactTokensForTokens",
+          args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+        })
+      }
 
       setSwapTxHash(hash)
 
@@ -421,6 +467,19 @@ export function SwapCard() {
               <span className="text-muted-foreground">Slippage Tolerance</span>
               <span>{slippage}%</span>
             </div>
+            {!isLoadingFees && totalFee > 0 && (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Trading Fee</span>
+                <div className="flex items-center gap-1">
+                  <span>{totalFee.toFixed(3)}%</span>
+                  {volatilityFee > 0 && (
+                    <span className="text-xs text-orange-500" title={`Base: ${baseFee.toFixed(3)}% + Surge: ${volatilityFee.toFixed(3)}%`}>
+                      ⚡
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
             {priceImpact !== null && (
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground">Price Impact</span>
