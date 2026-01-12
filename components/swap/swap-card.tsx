@@ -345,7 +345,7 @@ export function SwapCard() {
   // Check if token is native ETH (WETH on this chain)
   const isNativeToken = (token: Token | null) => {
     if (!token) return false
-    return token.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+    return token.address.toLowerCase() === TOKENS.WETH.address.toLowerCase()
   }
 
   const needsApproval = () => {

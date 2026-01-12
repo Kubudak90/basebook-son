@@ -191,8 +191,8 @@ export function RemoveLiquidity() {
       const amountYMin = (selectedData.estimatedY * slippageMultiplier) / BigInt(10000)
 
       // Check if either token is native ETH
-      const isTokenXNative = tokenX.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()
-      const isTokenYNative = tokenY.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+      const isTokenXNative = tokenX.address.toLowerCase() === TOKENS.WETH.address.toLowerCase()
+      const isTokenYNative = tokenY.address.toLowerCase() === TOKENS.WETH.address.toLowerCase()
       const hasNativeToken = isTokenXNative || isTokenYNative
 
       let hash: `0x${string}`

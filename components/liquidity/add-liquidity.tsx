@@ -383,7 +383,7 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
     if (!tokenX || !amountX) return
 
     // Skip approval for native ETH
-    if (tokenX.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()) {
+    if (tokenX.address.toLowerCase() === TOKENS.WETH.address.toLowerCase()) {
       toast({
         title: "No approval needed",
         description: "Native ETH doesn't require approval"
@@ -414,7 +414,7 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
     if (!tokenY || !amountY) return
 
     // Skip approval for native ETH
-    if (tokenY.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()) {
+    if (tokenY.address.toLowerCase() === TOKENS.WETH.address.toLowerCase()) {
       toast({
         title: "No approval needed",
         description: "Native ETH doesn't require approval"
@@ -643,8 +643,8 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
       }
 
       // Check if either token is native ETH
-      const isTokenXNative = finalTokenXAddr.toLowerCase() === CONTRACTS.WETH.toLowerCase()
-      const isTokenYNative = finalTokenYAddr.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+      const isTokenXNative = finalTokenXAddr.toLowerCase() === TOKENS.WETH.address.toLowerCase()
+      const isTokenYNative = finalTokenYAddr.toLowerCase() === TOKENS.WETH.address.toLowerCase()
       const hasNativeToken = isTokenXNative || isTokenYNative
 
       let hash: `0x${string}`
