@@ -17,6 +17,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { baseSepolia } from "wagmi/chains"
 import { useTransactionHistory } from "@/hooks/use-transaction-history"
 import { usePoolFees } from "@/hooks/use-pool-fees"
+import { useTokenFeeDetection } from "@/hooks/use-token-fee-detection"
 
 interface Token {
   address: string
@@ -234,6 +235,17 @@ export function SwapCard() {
   // Get dynamic fees from the pool
   const { baseFee, volatilityFee, totalFee, isLoading: isLoadingFees } = usePoolFees(pairAddress)
 
+  // Detect fee-on-transfer tokens
+  const { isFeeToken: isFromFeeToken, feeInfo: fromFeeInfo } = useTokenFeeDetection(
+    fromToken?.address as `0x${string}`
+  )
+  const { isFeeToken: isToFeeToken, feeInfo: toFeeInfo } = useTokenFeeDetection(
+    toToken?.address as `0x${string}`
+  )
+
+  // If either token is fee-on-transfer, we should use supporting functions
+  const shouldUseFeeSupporting = isFromFeeToken || isToFeeToken
+
   // Validate input amount
   const validateAmount = (amount: string): string | null => {
     if (!amount || amount.trim() === "") {
@@ -403,31 +415,71 @@ export function SwapCard() {
         const slippageBps = BigInt(Math.floor(Number.parseFloat(slippage) * 100))
         const minAmountOut = (expectedOut * (BigInt(10000) - slippageBps)) / BigInt(10000)
 
-        if (fromIsNative) {
-          hash = await writeContractAsync({
-            address: CONTRACTS.LBRouter as `0x${string}`,
-            abi: LBRouterABI,
-            functionName: "swapExactNATIVEForTokens",
-            value: amountIn,
-            args: [minAmountOut, binSteps, tokenPath, address, deadline],
-          })
-        } else if (toIsNative) {
-          hash = await writeContractAsync({
-            address: CONTRACTS.LBRouter as `0x${string}`,
-            abi: LBRouterABI,
-            functionName: "swapExactTokensForNATIVE",
-            args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
-          })
+        // Use fee-on-transfer supporting functions if needed
+        if (shouldUseFeeSupporting) {
+          // Fee-on-transfer tokens require special handling
+          // These functions don't return amounts, they just succeed or revert
+          if (fromIsNative) {
+            hash = await writeContractAsync({
+              address: CONTRACTS.LBRouter as `0x${string}`,
+              abi: LBRouterABI,
+              functionName: "swapExactNATIVEForTokensSupportingFeeOnTransferTokens",
+              value: amountIn,
+              args: [minAmountOut, binSteps, tokenPath, address, deadline],
+            })
+          } else if (toIsNative) {
+            hash = await writeContractAsync({
+              address: CONTRACTS.LBRouter as `0x${string}`,
+              abi: LBRouterABI,
+              functionName: "swapExactTokensForNATIVESupportingFeeOnTransferTokens",
+              args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+            })
+          } else {
+            hash = await writeContractAsync({
+              address: CONTRACTS.LBRouter as `0x${string}`,
+              abi: LBRouterABI,
+              functionName: "swapExactTokensForTokensSupportingFeeOnTransferTokens",
+              args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+            })
+          }
         } else {
-          hash = await writeContractAsync({
-            address: CONTRACTS.LBRouter as `0x${string}`,
-            abi: LBRouterABI,
-            functionName: "swapExactTokensForTokens",
-            args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
-          })
+          // Regular swaps (no fee-on-transfer)
+          if (fromIsNative) {
+            hash = await writeContractAsync({
+              address: CONTRACTS.LBRouter as `0x${string}`,
+              abi: LBRouterABI,
+              functionName: "swapExactNATIVEForTokens",
+              value: amountIn,
+              args: [minAmountOut, binSteps, tokenPath, address, deadline],
+            })
+          } else if (toIsNative) {
+            hash = await writeContractAsync({
+              address: CONTRACTS.LBRouter as `0x${string}`,
+              abi: LBRouterABI,
+              functionName: "swapExactTokensForNATIVE",
+              args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+            })
+          } else {
+            hash = await writeContractAsync({
+              address: CONTRACTS.LBRouter as `0x${string}`,
+              abi: LBRouterABI,
+              functionName: "swapExactTokensForTokens",
+              args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+            })
+          }
         }
       } else {
         // EXACT OUTPUT MODE
+        // Warning: Exact output doesn't work with fee-on-transfer tokens
+        if (shouldUseFeeSupporting) {
+          toast({
+            title: "Fee-on-transfer token detected",
+            description: "Exact output mode is not supported for fee-on-transfer tokens. Please use exact input mode.",
+            variant: "destructive",
+          })
+          return
+        }
+
         const amountOut = parseUnits(toAmount!, toToken.decimals)
         const expectedIn = parseUnits(calculatedInput!, fromToken.decimals)
         const slippageBps = BigInt(Math.floor(Number.parseFloat(slippage) * 100))
@@ -635,6 +687,17 @@ export function SwapCard() {
                       ⚡
                     </span>
                   )}
+                </div>
+              </div>
+            )}
+            {shouldUseFeeSupporting && (
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Token Type</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-amber-600 dark:text-amber-400">Fee-on-Transfer</span>
+                  <span className="text-xs" title="This token charges a fee on transfers. Using special swap function.">
+                    ⚠️
+                  </span>
                 </div>
               </div>
             )}
