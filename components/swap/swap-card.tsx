@@ -35,7 +35,9 @@ export function SwapCard() {
   const [fromToken, setFromToken] = useState<Token | null>(TOKENS.WETH)
   const [toToken, setToToken] = useState<Token | null>(TOKENS.USDC)
   const [fromAmount, setFromAmount] = useState("")
+  const [toAmount, setToAmount] = useState("")
   const [slippage, setSlippage] = useState("0.5")
+  const [swapMode, setSwapMode] = useState<"exactIn" | "exactOut">("exactIn")
   const [isQuoting, setIsQuoting] = useState(false)
   const [inputError, setInputError] = useState<string | null>(null)
 
@@ -71,9 +73,9 @@ export function SwapCard() {
     }
   }, [swapTxHash, isSwapSuccess, isSwapError, updateTransaction, toast])
 
-  // Prepare quote parameters
-  const quoteParams = useMemo(() => {
-    if (!fromToken || !toToken || !fromAmount || Number(fromAmount) <= 0) {
+  // Prepare quote parameters based on swap mode
+  const quoteParamsExactIn = useMemo(() => {
+    if (swapMode !== "exactIn" || !fromToken || !toToken || !fromAmount || Number(fromAmount) <= 0) {
       return null
     }
 
@@ -84,37 +86,90 @@ export function SwapCard() {
     } catch {
       return null
     }
-  }, [fromToken, toToken, fromAmount])
+  }, [swapMode, fromToken, toToken, fromAmount])
 
-  // Get swap quote from LBQuoter
-  const { data: quoteData, isLoading: isLoadingQuote } = useReadContract({
-    address: CONTRACTS.LBQuoter as `0x${string}`,
-    abi: LBQuoterABI,
-    functionName: "findBestPathFromAmountIn",
-    args: quoteParams ? [quoteParams.route as `0x${string}`[], quoteParams.amountIn] : undefined,
-    chainId: baseSepolia.id,
-    query: {
-      enabled: !!quoteParams,
-      refetchInterval: 10000, // Refetch every 10 seconds
-    },
-  })
-
-  // Calculate output amount from quote
-  const calculatedOutput = useMemo(() => {
-    if (!quoteData || !toToken) return null
+  const quoteParamsExactOut = useMemo(() => {
+    if (swapMode !== "exactOut" || !fromToken || !toToken || !toAmount || Number(toAmount) <= 0) {
+      return null
+    }
 
     try {
-      // Quote returns: (route, pairs, binSteps, amounts, virtualAmountsWithoutSlippage, fees)
-      const amounts = (quoteData as any).amounts
-      if (!amounts || amounts.length === 0) return null
-
-      // Last amount in the array is the output amount
-      const outputAmount = amounts[amounts.length - 1]
-      return formatUnits(outputAmount, toToken.decimals)
+      const amountOut = parseUnits(toAmount, toToken.decimals)
+      const route = [fromToken.address, toToken.address]
+      return { amountOut, route }
     } catch {
       return null
     }
-  }, [quoteData, toToken])
+  }, [swapMode, fromToken, toToken, toAmount])
+
+  // Get swap quote from LBQuoter - Exact Input
+  const { data: quoteDataExactIn, isLoading: isLoadingQuoteExactIn } = useReadContract({
+    address: CONTRACTS.LBQuoter as `0x${string}`,
+    abi: LBQuoterABI,
+    functionName: "findBestPathFromAmountIn",
+    args: quoteParamsExactIn ? [quoteParamsExactIn.route as `0x${string}`[], quoteParamsExactIn.amountIn] : undefined,
+    chainId: baseSepolia.id,
+    query: {
+      enabled: !!quoteParamsExactIn && swapMode === "exactIn",
+      refetchInterval: 10000,
+    },
+  })
+
+  // Get swap quote from LBQuoter - Exact Output
+  const { data: quoteDataExactOut, isLoading: isLoadingQuoteExactOut } = useReadContract({
+    address: CONTRACTS.LBQuoter as `0x${string}`,
+    abi: LBQuoterABI,
+    functionName: "findBestPathFromAmountOut",
+    args: quoteParamsExactOut ? [quoteParamsExactOut.route as `0x${string}`[], quoteParamsExactOut.amountOut] : undefined,
+    chainId: baseSepolia.id,
+    query: {
+      enabled: !!quoteParamsExactOut && swapMode === "exactOut",
+      refetchInterval: 10000,
+    },
+  })
+
+  // Select active quote based on mode
+  const quoteData = swapMode === "exactIn" ? quoteDataExactIn : quoteDataExactOut
+  const isLoadingQuote = swapMode === "exactIn" ? isLoadingQuoteExactIn : isLoadingQuoteExactOut
+
+  // Calculate output/input amount from quote
+  const calculatedOutput = useMemo(() => {
+    if (swapMode === "exactIn") {
+      // For exact input, calculate output
+      if (!quoteDataExactIn || !toToken) return null
+
+      try {
+        const amounts = (quoteDataExactIn as any).amounts
+        if (!amounts || amounts.length === 0) return null
+        const outputAmount = amounts[amounts.length - 1]
+        return formatUnits(outputAmount, toToken.decimals)
+      } catch {
+        return null
+      }
+    } else {
+      // For exact output, return the user's input (already known)
+      return toAmount || null
+    }
+  }, [swapMode, quoteDataExactIn, toToken, toAmount])
+
+  const calculatedInput = useMemo(() => {
+    if (swapMode === "exactOut") {
+      // For exact output, calculate required input
+      if (!quoteDataExactOut || !fromToken) return null
+
+      try {
+        const amounts = (quoteDataExactOut as any).amounts
+        if (!amounts || amounts.length === 0) return null
+        const inputAmount = amounts[0]
+        return formatUnits(inputAmount, fromToken.decimals)
+      } catch {
+        return null
+      }
+    } else {
+      // For exact input, return the user's input (already known)
+      return fromAmount || null
+    }
+  }, [swapMode, quoteDataExactOut, fromToken, fromAmount])
 
   // Calculate price impact
   const priceImpact = useMemo(() => {
@@ -229,10 +284,28 @@ export function SwapCard() {
     return null
   }
 
-  const handleAmountChange = (value: string) => {
+  const handleFromAmountChange = (value: string) => {
     setFromAmount(value)
-    const error = validateAmount(value)
-    setInputError(error)
+    if (swapMode === "exactIn") {
+      const error = validateAmount(value)
+      setInputError(error)
+    }
+  }
+
+  const handleToAmountChange = (value: string) => {
+    setToAmount(value)
+    if (swapMode === "exactOut") {
+      const error = validateAmount(value)
+      setInputError(error)
+    }
+  }
+
+  const toggleSwapMode = () => {
+    setSwapMode(prev => prev === "exactIn" ? "exactOut" : "exactIn")
+    // Clear amounts when switching modes
+    setFromAmount("")
+    setToAmount("")
+    setInputError(null)
   }
 
   const handleSlippageChange = (value: string) => {
@@ -251,8 +324,9 @@ export function SwapCard() {
     const temp = fromToken
     setFromToken(toToken)
     setToToken(temp)
-    // Clear from amount when swapping to trigger new quote
+    // Clear amounts when swapping to trigger new quote
     setFromAmount("")
+    setToAmount("")
     setInputError(null)
   }
 
@@ -263,11 +337,12 @@ export function SwapCard() {
   }
 
   const needsApproval = () => {
-    if (!fromAmount || !fromToken) return false
+    const inputAmount = swapMode === "exactIn" ? fromAmount : calculatedInput
+    if (!inputAmount || !fromToken) return false
     // Native ETH doesn't need approval
     if (isNativeToken(fromToken)) return false
     try {
-      const amount = parseUnits(fromAmount, fromToken.decimals)
+      const amount = parseUnits(inputAmount, fromToken.decimals)
       return (allowance as bigint) < amount
     } catch {
       return false
@@ -275,10 +350,11 @@ export function SwapCard() {
   }
 
   const handleApprove = async () => {
-    if (!fromToken || !fromAmount) return
+    const inputAmount = swapMode === "exactIn" ? fromAmount : calculatedInput
+    if (!fromToken || !inputAmount) return
 
     try {
-      const amount = parseUnits(fromAmount, fromToken.decimals)
+      const amount = parseUnits(inputAmount, fromToken.decimals)
       const hash = await writeContractAsync({
         address: fromToken.address as `0x${string}`,
         abi: ERC20ABI,
@@ -303,69 +379,102 @@ export function SwapCard() {
   }
 
   const handleSwapTokens = async () => {
-    if (!fromToken || !toToken || !fromAmount || !address || !calculatedOutput || !quoteData) return
+    if (!fromToken || !toToken || !address || !quoteData) return
+
+    // For exact input mode, need fromAmount and calculatedOutput
+    // For exact output mode, need toAmount and calculatedInput
+    if (swapMode === "exactIn" && (!fromAmount || !calculatedOutput)) return
+    if (swapMode === "exactOut" && (!toAmount || !calculatedInput)) return
 
     try {
-      const amountIn = parseUnits(fromAmount, fromToken.decimals)
-      const expectedOut = parseUnits(calculatedOutput, toToken.decimals)
-
-      // Apply slippage protection using basis points
-      const slippageBps = BigInt(Math.floor(Number.parseFloat(slippage) * 100))
-      const minAmountOut = (expectedOut * (BigInt(10000) - slippageBps)) / BigInt(10000)
-
-      // Get bin steps from quote
       const binSteps = (quoteData as any).binSteps || [25]
       const tokenPath = [fromToken.address as `0x${string}`, toToken.address as `0x${string}`]
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200) // 20 min deadline
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200)
 
       const fromIsNative = isNativeToken(fromToken)
       const toIsNative = isNativeToken(toToken)
 
       let hash: `0x${string}`
 
-      // Native ETH → Token
-      if (fromIsNative) {
-        hash = await writeContractAsync({
-          address: CONTRACTS.LBRouter as `0x${string}`,
-          abi: LBRouterABI,
-          functionName: "swapExactNATIVEForTokens",
-          value: amountIn, // Send ETH as value
-          args: [minAmountOut, binSteps, tokenPath, address, deadline],
-        })
-      }
-      // Token → Native ETH
-      else if (toIsNative) {
-        hash = await writeContractAsync({
-          address: CONTRACTS.LBRouter as `0x${string}`,
-          abi: LBRouterABI,
-          functionName: "swapExactTokensForNATIVE",
-          args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
-        })
-      }
-      // Regular Token → Token
-      else {
-        hash = await writeContractAsync({
-          address: CONTRACTS.LBRouter as `0x${string}`,
-          abi: LBRouterABI,
-          functionName: "swapExactTokensForTokens",
-          args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
-        })
+      if (swapMode === "exactIn") {
+        // EXACT INPUT MODE
+        const amountIn = parseUnits(fromAmount!, fromToken.decimals)
+        const expectedOut = parseUnits(calculatedOutput!, toToken.decimals)
+        const slippageBps = BigInt(Math.floor(Number.parseFloat(slippage) * 100))
+        const minAmountOut = (expectedOut * (BigInt(10000) - slippageBps)) / BigInt(10000)
+
+        if (fromIsNative) {
+          hash = await writeContractAsync({
+            address: CONTRACTS.LBRouter as `0x${string}`,
+            abi: LBRouterABI,
+            functionName: "swapExactNATIVEForTokens",
+            value: amountIn,
+            args: [minAmountOut, binSteps, tokenPath, address, deadline],
+          })
+        } else if (toIsNative) {
+          hash = await writeContractAsync({
+            address: CONTRACTS.LBRouter as `0x${string}`,
+            abi: LBRouterABI,
+            functionName: "swapExactTokensForNATIVE",
+            args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+          })
+        } else {
+          hash = await writeContractAsync({
+            address: CONTRACTS.LBRouter as `0x${string}`,
+            abi: LBRouterABI,
+            functionName: "swapExactTokensForTokens",
+            args: [amountIn, minAmountOut, binSteps, tokenPath, address, deadline],
+          })
+        }
+      } else {
+        // EXACT OUTPUT MODE
+        const amountOut = parseUnits(toAmount!, toToken.decimals)
+        const expectedIn = parseUnits(calculatedInput!, fromToken.decimals)
+        const slippageBps = BigInt(Math.floor(Number.parseFloat(slippage) * 100))
+        const maxAmountIn = (expectedIn * (BigInt(10000) + slippageBps)) / BigInt(10000)
+
+        if (fromIsNative) {
+          hash = await writeContractAsync({
+            address: CONTRACTS.LBRouter as `0x${string}`,
+            abi: LBRouterABI,
+            functionName: "swapNATIVEForExactTokens",
+            value: maxAmountIn,
+            args: [amountOut, binSteps, tokenPath, address, deadline],
+          })
+        } else if (toIsNative) {
+          hash = await writeContractAsync({
+            address: CONTRACTS.LBRouter as `0x${string}`,
+            abi: LBRouterABI,
+            functionName: "swapTokensForExactNATIVE",
+            args: [amountOut, maxAmountIn, binSteps, tokenPath, address, deadline],
+          })
+        } else {
+          hash = await writeContractAsync({
+            address: CONTRACTS.LBRouter as `0x${string}`,
+            abi: LBRouterABI,
+            functionName: "swapTokensForExactTokens",
+            args: [amountOut, maxAmountIn, binSteps, tokenPath, address, deadline],
+          })
+        }
       }
 
       setSwapTxHash(hash)
 
-      // Add to transaction history
+      // Add to transaction history with correct amounts
+      const actualFromAmount = swapMode === "exactIn" ? fromAmount! : calculatedInput!
+      const actualToAmount = swapMode === "exactIn" ? calculatedOutput! : toAmount!
+
       addTransaction({
         type: "swap",
         status: "pending",
         hash,
         fromToken: {
           symbol: fromToken.symbol,
-          amount: fromAmount,
+          amount: actualFromAmount,
         },
         toToken: {
           symbol: toToken.symbol,
-          amount: calculatedOutput,
+          amount: actualToAmount,
         },
       })
 
@@ -374,7 +483,9 @@ export function SwapCard() {
         description: "Waiting for confirmation...",
       })
 
+      // Clear amounts
       setFromAmount("")
+      setToAmount("")
     } catch (error: any) {
       toast({
         title: "Swap failed",
@@ -389,28 +500,57 @@ export function SwapCard() {
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <span>Swap</span>
-          <Button variant="ghost" size="icon">
-            <Settings className="h-4 w-4" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleSwapMode}
+              className="text-xs"
+            >
+              {swapMode === "exactIn" ? "Exact In" : "Exact Out"}
+            </Button>
+            <Button variant="ghost" size="icon">
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* From Token */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">From</span>
+            <span className="text-muted-foreground">
+              {swapMode === "exactIn" ? "You pay" : "You pay (max)"}
+            </span>
             <span className="text-muted-foreground">Balance: {fromBalance}</span>
           </div>
           <div className="flex gap-2">
-            <Input
-              type="number"
-              placeholder="0.0"
-              value={fromAmount}
-              onChange={(e) => handleAmountChange(e.target.value)}
-              className={`flex-1 ${inputError ? "border-red-500" : ""}`}
-              min="0"
-              step="any"
-            />
+            {swapMode === "exactIn" ? (
+              <Input
+                type="number"
+                placeholder="0.0"
+                value={fromAmount}
+                onChange={(e) => handleFromAmountChange(e.target.value)}
+                className={`flex-1 ${inputError ? "border-red-500" : ""}`}
+                min="0"
+                step="any"
+              />
+            ) : (
+              <div className="flex-1 relative">
+                <Input
+                  type="text"
+                  placeholder="0.0"
+                  value={calculatedInput || ""}
+                  disabled
+                  className="flex-1 pr-8"
+                />
+                {isLoadingQuote && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <Spinner className="h-4 w-4" />
+                  </div>
+                )}
+              </div>
+            )}
             <TokenSelect selectedToken={fromToken} onSelectToken={setFromToken} excludeToken={toToken} />
           </div>
           {inputError && (
@@ -428,38 +568,56 @@ export function SwapCard() {
         {/* To Token */}
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">To</span>
             <span className="text-muted-foreground">
-              {isLoadingQuote ? "Calculating..." : "Estimated"}
+              {swapMode === "exactOut" ? "You receive (exact)" : "You receive"}
+            </span>
+            <span className="text-muted-foreground">
+              {isLoadingQuote ? "Calculating..." : swapMode === "exactOut" ? "Exact" : "Estimated"}
             </span>
           </div>
           <div className="flex gap-2">
-            <div className="flex-1 relative">
+            {swapMode === "exactOut" ? (
               <Input
-                type="text"
+                type="number"
                 placeholder="0.0"
-                value={calculatedOutput || ""}
-                disabled
-                className="flex-1 pr-8"
+                value={toAmount}
+                onChange={(e) => handleToAmountChange(e.target.value)}
+                className={`flex-1 ${inputError ? "border-red-500" : ""}`}
+                min="0"
+                step="any"
               />
-              {isLoadingQuote && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <Spinner className="h-4 w-4" />
-                </div>
-              )}
-            </div>
+            ) : (
+              <div className="flex-1 relative">
+                <Input
+                  type="text"
+                  placeholder="0.0"
+                  value={calculatedOutput || ""}
+                  disabled
+                  className="flex-1 pr-8"
+                />
+                {isLoadingQuote && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                    <Spinner className="h-4 w-4" />
+                  </div>
+                )}
+              </div>
+            )}
             <TokenSelect selectedToken={toToken} onSelectToken={setToToken} excludeToken={fromToken} />
           </div>
         </div>
 
         {/* Swap Details */}
-        {fromAmount && calculatedOutput && (
+        {((swapMode === "exactIn" && fromAmount && calculatedOutput) ||
+          (swapMode === "exactOut" && toAmount && calculatedInput)) && (
           <div className="space-y-2 p-3 bg-muted rounded-lg text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Rate</span>
               <span>
                 1 {fromToken?.symbol} ≈{" "}
-                {(Number.parseFloat(calculatedOutput) / Number.parseFloat(fromAmount)).toFixed(6)}{" "}
+                {swapMode === "exactIn"
+                  ? (Number.parseFloat(calculatedOutput!) / Number.parseFloat(fromAmount!)).toFixed(6)
+                  : (Number.parseFloat(toAmount!) / Number.parseFloat(calculatedInput!)).toFixed(6)
+                }{" "}
                 {toToken?.symbol}
               </span>
             </div>
@@ -488,13 +646,23 @@ export function SwapCard() {
                 </span>
               </div>
             )}
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Minimum Received</span>
-              <span>
-                {(Number.parseFloat(calculatedOutput) * (1 - Number.parseFloat(slippage) / 100)).toFixed(6)}{" "}
-                {toToken?.symbol}
-              </span>
-            </div>
+            {swapMode === "exactIn" ? (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Minimum Received</span>
+                <span>
+                  {(Number.parseFloat(calculatedOutput!) * (1 - Number.parseFloat(slippage) / 100)).toFixed(6)}{" "}
+                  {toToken?.symbol}
+                </span>
+              </div>
+            ) : (
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Maximum Input</span>
+                <span>
+                  {(Number.parseFloat(calculatedInput!) * (1 + Number.parseFloat(slippage) / 100)).toFixed(6)}{" "}
+                  {fromToken?.symbol}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -532,7 +700,11 @@ export function SwapCard() {
           <Button
             className="w-full"
             onClick={handleSwapTokens}
-            disabled={!fromAmount || !calculatedOutput || isSwapping || isLoadingQuote || !!inputError}
+            disabled={
+              swapMode === "exactIn"
+                ? !fromAmount || !calculatedOutput || isSwapping || isLoadingQuote || !!inputError
+                : !toAmount || !calculatedInput || isSwapping || isLoadingQuote || !!inputError
+            }
           >
             {isSwapping ? (
               <>
