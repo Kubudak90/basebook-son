@@ -381,6 +381,16 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
 
   const handleApproveX = async () => {
     if (!tokenX || !amountX) return
+
+    // Skip approval for native ETH
+    if (tokenX.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()) {
+      toast({
+        title: "No approval needed",
+        description: "Native ETH doesn't require approval"
+      })
+      return
+    }
+
     try {
       // Approve exact amount for security
       const amount = parseUnits(amountX, tokenX.decimals)
@@ -402,6 +412,16 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
 
   const handleApproveY = async () => {
     if (!tokenY || !amountY) return
+
+    // Skip approval for native ETH
+    if (tokenY.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()) {
+      toast({
+        title: "No approval needed",
+        description: "Native ETH doesn't require approval"
+      })
+      return
+    }
+
     try {
       // Approve exact amount for security
       const amount = parseUnits(amountY, tokenY.decimals)
@@ -622,12 +642,33 @@ export function AddLiquidity({ poolTokenX, poolTokenY, poolBinStep, poolPairAddr
         deadline: BigInt(Math.floor(Date.now() / 1000) + 1200),
       }
 
-      const hash = await writeContractAsync({
-        address: CONTRACTS.LBRouter as `0x${string}`,
-        abi: LBRouterABI,
-        functionName: "addLiquidity",
-        args: [liquidityParams],
-      })
+      // Check if either token is native ETH
+      const isTokenXNative = finalTokenXAddr.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+      const isTokenYNative = finalTokenYAddr.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+      const hasNativeToken = isTokenXNative || isTokenYNative
+
+      let hash: `0x${string}`
+
+      if (hasNativeToken) {
+        // Use addLiquidityNATIVE for native ETH
+        const nativeAmount = isTokenXNative ? finalAmountXBig : finalAmountYBig
+
+        hash = await writeContractAsync({
+          address: CONTRACTS.LBRouter as `0x${string}`,
+          abi: LBRouterABI,
+          functionName: "addLiquidityNATIVE",
+          value: nativeAmount, // Send ETH as value
+          args: [liquidityParams],
+        })
+      } else {
+        // Regular ERC20 tokens
+        hash = await writeContractAsync({
+          address: CONTRACTS.LBRouter as `0x${string}`,
+          abi: LBRouterABI,
+          functionName: "addLiquidity",
+          args: [liquidityParams],
+        })
+      }
 
       setTxHash(hash)
 

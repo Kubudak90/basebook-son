@@ -190,22 +190,54 @@ export function RemoveLiquidity() {
       const amountXMin = (selectedData.estimatedX * slippageMultiplier) / BigInt(10000)
       const amountYMin = (selectedData.estimatedY * slippageMultiplier) / BigInt(10000)
 
-      const hash = await writeContractAsync({
-        address: CONTRACTS.LBRouter as `0x${string}`,
-        abi: LBRouterABI,
-        functionName: "removeLiquidity",
-        args: [
-          tokenX.address as `0x${string}`,
-          tokenY.address as `0x${string}`,
-          selectedPool?.binStep || 25, // Use pool's binStep
-          amountXMin,
-          amountYMin,
-          ids,
-          amounts,
-          address,
-          BigInt(Math.floor(Date.now() / 1000) + 1200), // 20 min deadline
-        ],
-      })
+      // Check if either token is native ETH
+      const isTokenXNative = tokenX.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+      const isTokenYNative = tokenY.address.toLowerCase() === CONTRACTS.WETH.toLowerCase()
+      const hasNativeToken = isTokenXNative || isTokenYNative
+
+      let hash: `0x${string}`
+
+      if (hasNativeToken) {
+        // Use removeLiquidityNATIVE for native ETH
+        // The other token (non-native) is the "token" parameter
+        const otherToken = isTokenXNative ? tokenY.address : tokenX.address
+        const tokenMin = isTokenXNative ? amountYMin : amountXMin
+        const nativeMin = isTokenXNative ? amountXMin : amountYMin
+
+        hash = await writeContractAsync({
+          address: CONTRACTS.LBRouter as `0x${string}`,
+          abi: LBRouterABI,
+          functionName: "removeLiquidityNATIVE",
+          args: [
+            otherToken as `0x${string}`,
+            selectedPool?.binStep || 25,
+            tokenMin,
+            nativeMin,
+            ids,
+            amounts,
+            address as `0x${string}`,
+            BigInt(Math.floor(Date.now() / 1000) + 1200),
+          ],
+        })
+      } else {
+        // Regular ERC20 tokens
+        hash = await writeContractAsync({
+          address: CONTRACTS.LBRouter as `0x${string}`,
+          abi: LBRouterABI,
+          functionName: "removeLiquidity",
+          args: [
+            tokenX.address as `0x${string}`,
+            tokenY.address as `0x${string}`,
+            selectedPool?.binStep || 25,
+            amountXMin,
+            amountYMin,
+            ids,
+            amounts,
+            address,
+            BigInt(Math.floor(Date.now() / 1000) + 1200),
+          ],
+        })
+      }
 
       setTxHash(hash)
 
