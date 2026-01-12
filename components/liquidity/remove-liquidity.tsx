@@ -13,7 +13,7 @@ import { LBRouterABI } from "@/lib/contracts/abis"
 import { useToast } from "@/hooks/use-toast"
 import { Spinner } from "@/components/ui/spinner"
 import { cn } from "@/lib/utils"
-import { useUserLiquidity } from "@/hooks/use-user-liquidity"
+import { useOptimizedUserLiquidity } from "@/hooks/use-optimized-user-liquidity"
 import { usePools } from "@/hooks/use-pools"
 import { formatUnits } from "viem"
 import { useTransactionHistory } from "@/hooks/use-transaction-history"
@@ -101,7 +101,7 @@ export function RemoveLiquidity() {
   } : null
 
   // Fetch real user liquidity positions for selected pool
-  const { positions, activeId, isLoading } = useUserLiquidity(selectedPool?.pairAddress)
+  const { positions, activeId, isLoading } = useOptimizedUserLiquidity(selectedPool?.pairAddress)
 
   // Validate slippage
   const validateSlippage = (slip: string): string | null => {
