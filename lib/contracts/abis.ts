@@ -13,9 +13,9 @@ export const LBRouterABI = parseAbi([
   "function swapNATIVEForExactTokens(uint256 amountOut, uint256[] pairBinSteps, address[] tokenPath, address to, uint256 deadline) external payable returns (uint256[] amountsIn)",
 
   // Fee-on-transfer support
-  "function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint256 amountIn, uint256 amountOutMin, uint256[] pairBinSteps, address[] tokenPath, address to, uint256 deadline) external",
-  "function swapExactNATIVEForTokensSupportingFeeOnTransferTokens(uint256 amountOutMin, uint256[] pairBinSteps, address[] tokenPath, address to, uint256 deadline) external payable",
-  "function swapExactTokensForNATIVESupportingFeeOnTransferTokens(uint256 amountIn, uint256 amountOutMinNATIVE, uint256[] pairBinSteps, address[] tokenPath, address payable to, uint256 deadline) external",
+  "function swapExactTokensForTokensSupportingFeeOnTransferTokens(uint256 amountIn, uint256 amountOutMin, uint256[] pairBinSteps, address[] tokenPath, address to, uint256 deadline) external returns (uint256 amountOut)",
+  "function swapExactNATIVEForTokensSupportingFeeOnTransferTokens(uint256 amountOutMin, uint256[] pairBinSteps, address[] tokenPath, address to, uint256 deadline) external payable returns (uint256 amountOut)",
+  "function swapExactTokensForNATIVESupportingFeeOnTransferTokens(uint256 amountIn, uint256 amountOutMinNATIVE, uint256[] pairBinSteps, address[] tokenPath, address payable to, uint256 deadline) external returns (uint256 amountOut)",
 
   // Liquidity - Regular
   "function addLiquidity((address tokenX, address tokenY, uint256 binStep, uint256 amountX, uint256 amountY, uint256 amountXMin, uint256 amountYMin, uint256 activeIdDesired, uint256 idSlippage, int256[] deltaIds, uint256[] distributionX, uint256[] distributionY, address to, address refundTo, uint256 deadline) liquidityParameters) external returns (uint256 amountXAdded, uint256 amountYAdded, uint256 amountXLeft, uint256 amountYLeft, uint256[] depositIds, uint256[] liquidityMinted)",
